@@ -156,6 +156,85 @@ func RecoverKeyFromShares(source string, threshold int) (map[string][]byte, erro
 	return result, nil
 }
 
+func RecoverSingleKeyFromShares(source string, threshold int, targetKeyName string) ([]byte, error) {
+	files, err := filepath.Glob(filepath.Join(source, "key_shares_*.json"))
+	if err != nil {
+		return nil, err
+	}
+	if len(files) < threshold {
+		return nil, fmt.Errorf("not enough shares: have %d, need %d", len(files), threshold)
+	}
+	sort.Strings(files)
+	files = files[:threshold]
+
+	var shares [][]byte
+
+	for _, file := range files {
+		data, err := ioutil.ReadFile(file)
+		if err != nil {
+			return nil, err
+		}
+
+		var ak AllKeys
+		if err := json.Unmarshal(data, &ak); err != nil {
+			return nil, err
+		}
+
+		for _, key := range ak.Keys {
+			if key.KeyName == targetKeyName {
+				if len(key.KeyShareVers) > 0 {
+					decoded, err := hex.DecodeString(key.KeyShareVers[0].Share)
+					if err != nil {
+						return nil, err
+					}
+					shares = append(shares, decoded)
+				}
+			}
+		}
+	}
+
+	if len(shares) < threshold {
+		return nil, fmt.Errorf("not enough shares found for %s", targetKeyName)
+	}
+
+	return shamir.Combine(shares)
+}
+
+func PrintKeyShareStats(source string) error {
+	files, err := filepath.Glob(filepath.Join(source, "key_shares_*.json"))
+	if err != nil {
+		return err
+	}
+	if len(files) == 0 {
+		return fmt.Errorf("no key_shares_*.json files found")
+	}
+
+	// Arbitrarily select first file
+	selectedFile := files[0]
+	data, err := ioutil.ReadFile(selectedFile)
+	if err != nil {
+		return err
+	}
+
+	var ak AllKeys
+	if err := json.Unmarshal(data, &ak); err != nil {
+		return err
+	}
+
+	fmt.Println("\n📊 Key Share Stats")
+	fmt.Println("────────────────────────────")
+	fmt.Printf("Selected File: %s\n", filepath.Base(selectedFile))
+	fmt.Printf("Share Number:  %d\n", ak.ShareNum)
+	fmt.Printf("Total Keys:    %d\n", len(ak.Keys))
+	fmt.Println("Key Names:")
+	for _, key := range ak.Keys {
+		fmt.Printf(" - %s\n", key.KeyName)
+	}
+	fmt.Println("────────────────────────────")
+
+	return nil
+}
+
 // writeKeyToFile saves the key to a file in hex format under ./keys/
 func writeKeyToFile(fullPath string, kv KeyValues) error {
 	f, err := os.Create(fullPath)
@@ -208,6 +287,7 @@ func main() {
 		panic(err)
 	}
 	fmt.Println("✅ Key shares saved as key_shares_0*.json")
+	fmt.Printf("✅ Split %d keys into %d shares each.\n", len(keys), cfg.TotalShares)
 
 	recovered, err := RecoverKeyFromShares(cfg.Directory, cfg.Threshold)
 	if err != nil {
@@ -218,6 +298,24 @@ func main() {
 	for k, v := range recovered {
 		fmt.Printf("%s %s\n", hex.EncodeToString(v), k)
 	}
+
+	// Specify a key to recover
+	targetKeyName := "key_01.key"
+	fmt.Printf("\n🔍 Attempting to recover only [%s]...\n", targetKeyName)
+
+	recoveredKey, err := RecoverSingleKeyFromShares(cfg.Directory, cfg.Threshold, targetKeyName)
+	if err != nil {
+		panic(err)
+	}
+
+	fmt.Println("✅ Recovered Key:")
+	fmt.Printf("%s %s\n", hex.EncodeToString(recoveredKey), targetKeyName)
+
+	// Call stats from key_shares_*.json
+	if err := PrintKeyShareStats(cfg.Directory); err != nil {
+		fmt.Println("⚠️  Failed to print stats:", err)
+	}
+
 }
 
 /*
@@ -225,14 +323,29 @@ go mod tidy
 go run main.go
 
 % go run main.go
-f3f4a6d9b8486db95adbc2a50ea64f876fb128711f97347ba1b58dca14e59177 keys/key_00.key
-dc958e7b38a842ac776db07b824901525c64a0628db0472401d2a8d268ba1491 keys/key_01.key
-371cdc6028d7c849ae185249e7528ae87e4559d162d2f2144ec3a22e37c062aa keys/key_02.key
+fe79f5ea5b2df8da348489c39a23fdb05ed67ca49ed8a55e19afe1af4f17e2a1 keys/key_00.key
+b95a556cedb7170a38d2d83c66fdb4ee13d1645de7637f859c71683599f9acfa keys/key_01.key
+e82363897ca7965eb7c3a17060be10dce3fe21dd875b4595b18db2d0ca66a725 keys/key_02.key
 ✅ Key shares saved as key_shares_0*.json
+✅ Split 3 keys into 8 shares each.
 
 ✅ Recovered Keys:
-f3f4a6d9b8486db95adbc2a50ea64f876fb128711f97347ba1b58dca14e59177 key_00.key
-dc958e7b38a842ac776db07b824901525c64a0628db0472401d2a8d268ba1491 key_01.key
-371cdc6028d7c849ae185249e7528ae87e4559d162d2f2144ec3a22e37c062aa key_02.key
+e82363897ca7965eb7c3a17060be10dce3fe21dd875b4595b18db2d0ca66a725 key_02.key
+fe79f5ea5b2df8da348489c39a23fdb05ed67ca49ed8a55e19afe1af4f17e2a1 key_00.key
+b95a556cedb7170a38d2d83c66fdb4ee13d1645de7637f859c71683599f9acfa key_01.key
 
+🔍 Attempting to recover only [key_01.key]...
+✅ Recovered Key:
+b95a556cedb7170a38d2d83c66fdb4ee13d1645de7637f859c71683599f9acfa key_01.key
+
+📊 Key Share Stats
+────────────────────────────
+Selected File: key_shares_01.json
+Share Number:  1
+Total Keys:    3
+Key Names:
+ - key_00.key
+ - key_01.key
+ - key_02.key
+────────────────────────────
 */
