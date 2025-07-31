@@ -1,0 +1,4 @@
+github.com/hashicorp/vault v1.20.1 h1:xUtsbd+1D8TVc1PjXxm1m0DvehbvVcZKuKXEVVUOQ4w=
+github.com/hashicorp/vault v1.20.1/go.mod h1:efDfqy/F7b6fsNWtK/GV5pL85tMLrJnKJ1Gb3i3r2Dk=
+github.com/joho/godotenv v1.5.1 h1:7eLL/+HRGLY0ldzfGMeQkb7vMd0as4CfYvUVzLqw0N0=
+github.com/joho/godotenv v1.5.1/go.mod h1:f4LDr5Voq0i2e/R5DDNOoa2zzDfwtkZa6DnEwAbqwq4=

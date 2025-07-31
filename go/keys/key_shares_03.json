@@ -1,0 +1,35 @@
+{
+  "share_num": 3,
+  "keys": [
+    {
+      "key_name": "key_00.key",
+      "key_type": "oct",
+      "key_share_vers": [
+        {
+          "version": 1,
+          "share": "6034707bebc493d753bae4c4208e2554cc4a3214013e0c9aae986b6a4e3f9dfb88"
+        }
+      ]
+    },
+    {
+      "key_name": "key_01.key",
+      "key_type": "oct",
+      "key_share_vers": [
+        {
+          "version": 1,
+          "share": "f3c9f455cbd92102c5a28cd720cf867a8088cb66c231a5e3456a0fcaf61e796abb"
+        }
+      ]
+    },
+    {
+      "key_name": "key_02.key",
+      "key_type": "oct",
+      "key_share_vers": [
+        {
+          "version": 1,
+          "share": "833f88ec1d72bc6bf807ad52f58617e75ba7968162c927051f7256815e46493f91"
+        }
+      ]
+    }
+  ]
+}
