@@ -35,6 +35,46 @@ make deep-clean   # Remove everything including go.mod
 ```
 
 ```
+Go main() 
+    ↓ (calls)
+benchmarkShamirHybrid() 
+    ↓ (via CGO)
+C.benchmark_shamir_ffi() 
+    ↓ (crosses language boundary)
+Rust benchmark_shamir_ffi() 
+    ↓ (calls)
+Rust benchmark_shamir() 
+    ↓ (performs Shamir operations)
+Rust BenchmarkResult 
+    ↓ (returns)
+Go BenchmarkResult
+    ↓ (displayed)
+Console Output
+```
+
+### Key Technical Points
+From Go → Rust:
+```
+C.CBytes() converts Go slice to C pointer
+
+Go structs map to C structs via cgo
+
+extern "C" in Rust makes it callable from C
+
+#[no_mangle] keeps the function name recognizable
+```
+
+From Rust → Go:
+```
+#[repr(C)] ensures C-compatible memory layout
+
+Rust returns struct directly to Go via C ABI
+
+Go receives the struct and converts fields to Go types
+```
+
+
+```
 % make run       
 === Checking project structure ===
 ✓ Project structure is valid
