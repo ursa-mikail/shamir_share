@@ -1,0 +1,18 @@
+[package]
+name = "shamir_benchmark"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+name = "shamir_benchmark"
+crate-type = ["cdylib"]
+
+[dependencies]
+sharks = "0.5.0"
+rand = "0.8.5"
+libc = "0.2"
+
+[profile.release]
+opt-level = 3
+lto = true
+
