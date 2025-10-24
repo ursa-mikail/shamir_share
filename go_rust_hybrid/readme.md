@@ -73,6 +73,73 @@ Rust returns struct directly to Go via C ABI
 Go receives the struct and converts fields to Go types
 ```
 
+### 1. Go Calling Rust (go/main.go)
+#### The CGO Bridge Declaration:
+
+```
+/*
+#cgo LDFLAGS: -L../rust/target/release -lshamir_benchmark -ldl -lm -lc
+#include <stdint.h>
+#include <stdlib.h>
+
+// ... C struct definitions ...
+
+extern BenchmarkResult benchmark_shamir_ffi(BenchmarkConfig config);
+*/
+import "C"
+```
+ #### The Actual Call from Go to Rust:
+
+ ```
+ func benchmarkShamirHybrid(data []byte, parts, threshold int, rounds int) BenchmarkResult {
+    // Convert Go data to C types
+    config := C.BenchmarkConfig{
+        data:      (*C.uint8_t)(C.CBytes(data)),  // Go slice → C pointer
+        data_len:  C.uint64_t(len(data)),         // Go int → C uint64
+        parts:     C.uint8_t(parts),              // Go int → C uint8
+        threshold: C.uint8_t(threshold),          // Go int → C uint8  
+        rounds:    C.uint64_t(rounds),            // Go int → C uint64
+    }
+    defer C.free(unsafe.Pointer(config.data))
+
+    // ⭐⭐⭐ THIS IS THE ACTUAL CALL TO RUST ⭐⭐⭐
+    result := C.benchmark_shamir_ffi(config)  // Calls Rust function!
+
+    // Convert C result back to Go types
+    return BenchmarkResult{
+        TotalTime:    time.Duration(result.total_time_ns) * time.Nanosecond,
+        SplitTime:    time.Duration(result.split_time_ns) * time.Nanosecond,
+        Throughput:   float64(result.throughput),
+        SuccessCount: int(result.success_count),
+    }
+}
+```
+
+### 2. Rust Receiving Call and Replying (rust/src/lib.rs)
+#### Rust Function That Gets Called by Go:
+
+```
+#[no_mangle]                    // ← Prevents Rust name mangling
+pub extern "C" fn benchmark_shamir_ffi(config: BenchmarkConfig) -> BenchmarkResult {
+    // ⭐⭐⭐ THIS IS CALLED BY GO ⭐⭐⭐
+    
+    // Convert C pointer to Rust slice
+    let data_slice = unsafe {
+        std::slice::from_raw_parts(config.data, config.data_len as usize)
+    };
+    
+    // Call the actual Rust implementation
+    let result = benchmark_shamir(
+        data_slice,
+        config.parts,
+        config.threshold, 
+        config.rounds as usize,
+    );
+    
+    // ⭐⭐⭐ RETURN RESULT BACK TO GO ⭐⭐⭐
+    result
+}
+```
 
 ```
 % make run       
