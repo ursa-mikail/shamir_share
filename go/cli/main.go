@@ -44,11 +44,13 @@ func main() {
 	splitTotal := splitCmd.Int("total", 5, "Total number of shares to create")
 	splitThreshold := splitCmd.Int("threshold", 3, "Minimum shares needed to reconstruct")
 	splitDir := splitCmd.String("dir", "shares", "Directory to save share files")
+	splitRaw := splitCmd.Bool("raw", false, "Treat input as raw bytes, not hex-encoded")
 
 	// Recover command flags
 	recoverDir := recoverCmd.String("dir", "shares", "Directory containing share files")
 	recoverKeyName := recoverCmd.String("name", "", "Specific key name to recover (recovers all if empty)")
 	recoverOutput := recoverCmd.String("output", "", "Output file for recovered key (stdout if empty)")
+	recoverRaw := recoverCmd.Bool("raw", false, "Output raw bytes, not hex-encoded")
 
 	// Generate command flags
 	generateSize := generateCmd.Int("size", 32, "Key size in bytes (default: 32 for 256-bit)")
@@ -61,10 +63,10 @@ func main() {
 	switch os.Args[1] {
 	case "split":
 		splitCmd.Parse(os.Args[2:])
-		handleSplit(*splitKey, *splitKeyFile, *splitKeyName, *splitTotal, *splitThreshold, *splitDir)
+		handleSplit(*splitKey, *splitKeyFile, *splitKeyName, *splitTotal, *splitThreshold, *splitDir, *splitRaw)
 	case "recover":
 		recoverCmd.Parse(os.Args[2:])
-		handleRecover(*recoverDir, *recoverKeyName, *recoverOutput)
+		handleRecover(*recoverDir, *recoverKeyName, *recoverOutput, *recoverRaw)
 	case "generate":
 		generateCmd.Parse(os.Args[2:])
 		handleGenerate(*generateSize)
@@ -91,21 +93,24 @@ Examples:
   shamir-cli generate
   shamir-cli generate -size 16  # Generate 128-bit key
 
-  # Split a key into 8 shares, requiring 3 to reconstruct
+  # Split a hex key into 8 shares, requiring 3 to reconstruct
   shamir-cli split -key fe79f5ea5b2df8da348489c39a23fdb05ed67ca49ed8a55e19afe1af4f17e2a1 \
     -total 8 -threshold 3 -dir ./my_shares -name master.key
 
-  # Split a key from a file
+  # Split a hex key from a file
   shamir-cli split -keyfile ./secret.key -total 5 -threshold 3 -dir ./shares
 
-  # Recover key from shares (outputs to stdout)
+  # Split a JSON file (raw bytes)
+  shamir-cli split -keyfile ./secret.json -raw -total 5 -threshold 3 -dir ./shares
+
+  # Recover key from shares (outputs to stdout as hex)
   shamir-cli recover -dir ./my_shares
 
   # Recover specific key and save to file
   shamir-cli recover -dir ./my_shares -name master.key -output recovered.key
 
-  # Recover specific key to stdout
-  shamir-cli recover -dir ./shares -name secret.key
+  # Recover raw bytes (for JSON, etc.)
+  shamir-cli recover -dir ./shares -name secret.json -raw -output recovered.json
 
 Options:
   Run 'shamir-cli <command> -h' for command-specific options`)
@@ -127,7 +132,7 @@ func handleGenerate(size int) {
 	fmt.Print(hexKey) // No newline
 }
 
-func handleSplit(keyHex, keyFile, keyName string, total, threshold int, dir string) {
+func handleSplit(keyHex, keyFile, keyName string, total, threshold int, dir string, raw bool) {
 	// Validate parameters
 	if total < 2 {
 		fmt.Fprintf(os.Stderr, "Error: Total shares must be at least 2\n")
@@ -142,33 +147,50 @@ func handleSplit(keyHex, keyFile, keyName string, total, threshold int, dir stri
 	var keyBytes []byte
 	var err error
 
-	if keyFile != "" {
-		// Read from file
-		data, err := ioutil.ReadFile(keyFile)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "Error reading key file: %v\n", err)
+	if raw {
+		// Read as raw bytes
+		if keyFile != "" {
+			keyBytes, err = ioutil.ReadFile(keyFile)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "Error reading key file: %v\n", err)
+				os.Exit(1)
+			}
+		} else if keyHex != "" {
+			keyBytes = []byte(keyHex)
+		} else {
+			fmt.Fprintf(os.Stderr, "Error: Must provide -key or -keyfile\n")
 			os.Exit(1)
 		}
-		keyHex = string(data)
-	}
-
-	if keyHex == "" {
-		fmt.Fprintf(os.Stderr, "Error: Must provide -key or -keyfile\n")
-		os.Exit(1)
-	}
-
-	// Remove all whitespace including newlines, spaces, tabs
-	keyHex = strings.Map(func(r rune) rune {
-		if r == ' ' || r == '\n' || r == '\r' || r == '\t' {
-			return -1
+	} else {
+		// Read as hex-encoded
+		if keyFile != "" {
+			// Read from file
+			data, err := ioutil.ReadFile(keyFile)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "Error reading key file: %v\n", err)
+				os.Exit(1)
+			}
+			keyHex = string(data)
 		}
-		return r
-	}, keyHex)
-	
-	keyBytes, err = hex.DecodeString(keyHex)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error decoding hex key: %v\n", err)
-		os.Exit(1)
+
+		if keyHex == "" {
+			fmt.Fprintf(os.Stderr, "Error: Must provide -key or -keyfile\n")
+			os.Exit(1)
+		}
+
+		// Remove all whitespace including newlines, spaces, tabs
+		keyHex = strings.Map(func(r rune) rune {
+			if r == ' ' || r == '\n' || r == '\r' || r == '\t' {
+				return -1
+			}
+			return r
+		}, keyHex)
+		
+		keyBytes, err = hex.DecodeString(keyHex)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error decoding hex key: %v\n", err)
+			os.Exit(1)
+		}
 	}
 
 	// Create directory
@@ -222,7 +244,7 @@ func handleSplit(keyHex, keyFile, keyName string, total, threshold int, dir stri
 	fmt.Printf("✅ Shares saved to: %s/\n", dir)
 }
 
-func handleRecover(dir, keyName, outputFile string) {
+func handleRecover(dir, keyName, outputFile string, raw bool) {
 	// Find share files
 	files, err := filepath.Glob(filepath.Join(dir, "key_shares_*.json"))
 	if err != nil {
@@ -299,18 +321,33 @@ func handleRecover(dir, keyName, outputFile string) {
 			continue
 		}
 
-		hexKey := hex.EncodeToString(recovered)
-
 		if outputFile != "" {
-			// Save to file (no newline)
-			if err := os.WriteFile(outputFile, []byte(hexKey), 0644); err != nil {
-				fmt.Fprintf(os.Stderr, "Error writing output file: %v\n", err)
-				os.Exit(1)
+			// Save to file
+			if raw {
+				// Write raw bytes
+				if err := os.WriteFile(outputFile, recovered, 0644); err != nil {
+					fmt.Fprintf(os.Stderr, "Error writing output file: %v\n", err)
+					os.Exit(1)
+				}
+			} else {
+				// Write as hex (no newline)
+				hexKey := hex.EncodeToString(recovered)
+				if err := os.WriteFile(outputFile, []byte(hexKey), 0644); err != nil {
+					fmt.Fprintf(os.Stderr, "Error writing output file: %v\n", err)
+					os.Exit(1)
+				}
 			}
 			fmt.Printf("✅ Recovered key '%s' saved to: %s\n", kName, outputFile)
 		} else {
 			// Output to stdout
-			fmt.Printf("✅ Recovered key '%s':\n%s\n", kName, hexKey)
+			if raw {
+				// Write raw bytes to stdout
+				os.Stdout.Write(recovered)
+			} else {
+				// Write as hex
+				hexKey := hex.EncodeToString(recovered)
+				fmt.Printf("✅ Recovered key '%s':\n%s\n", kName, hexKey)
+			}
 		}
 	}
 }
