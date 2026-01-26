@@ -143,3 +143,4 @@ echo "  ✅ JSON file split and recovery works"
 echo "  ✅ Recovered credentials can encrypt/decrypt data"
 echo "  ✅ Traditional hex key splitting still works"
 echo ""
+

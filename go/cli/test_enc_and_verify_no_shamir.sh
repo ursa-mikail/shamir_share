@@ -108,3 +108,21 @@ cat decrypted.txt
 echo
 
 echo "===== Process Complete ====="
+
+
+
+echo ""
+: <<'NOTE_BLOCK'
+
+Creates plaintext with timestamp using date command
+Generates random key and IV with OpenSSL
+Encrypts the file using AES-256-CBC
+Saves credentials to secret.json
+Extracts key and IV from secret.json using grep and sed
+Verifies the extracted values match the originals
+Decrypts using the extracted credentials
+Compares original and decrypted files with diff
+Displays both file contents for visual verification
+
+NOTE_BLOCK
+echo "" 
