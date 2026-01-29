@@ -97,20 +97,16 @@ Examples:
   shamir-cli split -key fe79f5ea5b2df8da348489c39a23fdb05ed67ca49ed8a55e19afe1af4f17e2a1 \
     -total 8 -threshold 3 -dir ./my_shares -name master.key
 
-  # Split a hex key from a file
-  shamir-cli split -keyfile ./secret.key -total 5 -threshold 3 -dir ./shares
+  # Split multiple keys to the same share directory
+  shamir-cli split -keyfile ./key1.txt -total 5 -threshold 3 -dir ./shares -name key1
+  shamir-cli split -keyfile ./key2.txt -total 5 -threshold 3 -dir ./shares -name key2
+  shamir-cli split -keyfile ./key3.txt -total 5 -threshold 3 -dir ./shares -name key3
 
-  # Split a JSON file (raw bytes)
-  shamir-cli split -keyfile ./secret.json -raw -total 5 -threshold 3 -dir ./shares
+  # Recover all keys from shares
+  shamir-cli recover -dir ./shares
 
-  # Recover key from shares (outputs to stdout as hex)
-  shamir-cli recover -dir ./my_shares
-
-  # Recover specific key and save to file
-  shamir-cli recover -dir ./my_shares -name master.key -output recovered.key
-
-  # Recover raw bytes (for JSON, etc.)
-  shamir-cli recover -dir ./shares -name secret.json -raw -output recovered.json
+  # Recover specific key
+  shamir-cli recover -dir ./shares -name key2 -output key2_recovered.txt
 
 Options:
   Run 'shamir-cli <command> -h' for command-specific options`)
@@ -206,27 +202,58 @@ func handleSplit(keyHex, keyFile, keyName string, total, threshold int, dir stri
 		os.Exit(1)
 	}
 
-	// Save each share
+	// Process each share
 	for i := 0; i < total; i++ {
 		filename := fmt.Sprintf("key_shares_%02d.json", i+1)
 		fullPath := filepath.Join(dir, filename)
 
-		allKeys := AllKeys{
-			ShareNum: i + 1,
-			Keys: []KeyShare{
+		var allKeys AllKeys
+
+		// Check if share file already exists
+		if data, err := ioutil.ReadFile(fullPath); err == nil {
+			// File exists, parse it
+			if err := json.Unmarshal(data, &allKeys); err != nil {
+				fmt.Fprintf(os.Stderr, "Error parsing existing share file %s: %v\n", filename, err)
+				os.Exit(1)
+			}
+
+			// Verify share numbers match
+			if allKeys.ShareNum != i+1 {
+				fmt.Fprintf(os.Stderr, "Error: Share number mismatch in %s\n", filename)
+				os.Exit(1)
+			}
+
+			// Check if key name already exists
+			for _, existingKey := range allKeys.Keys {
+				if existingKey.KeyName == keyName {
+					fmt.Fprintf(os.Stderr, "Error: Key '%s' already exists in share files\n", keyName)
+					os.Exit(1)
+				}
+			}
+		} else {
+			// File doesn't exist, create new structure with empty keys array
+			allKeys = AllKeys{
+				ShareNum: i + 1,
+				Keys:     make([]KeyShare, 0),
+			}
+		}
+
+		// Create the new key share entry
+		newKeyShare := KeyShare{
+			KeyName: keyName,
+			KeyType: "oct",
+			KeyShareVers: []KeyShareVers{
 				{
-					KeyName: keyName,
-					KeyType: "oct",
-					KeyShareVers: []KeyShareVers{
-						{
-							Version: 1,
-							Share:   hex.EncodeToString(shares[i]),
-						},
-					},
+					Version: 1,
+					Share:   hex.EncodeToString(shares[i]),
 				},
 			},
 		}
 
+		// Add the new key share
+		allKeys.Keys = append(allKeys.Keys, newKeyShare)
+
+		// Write the updated share file
 		data, err := json.MarshalIndent(allKeys, "", "  ")
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Error marshaling JSON: %v\n", err)
@@ -257,19 +284,6 @@ func handleRecover(dir, keyName, outputFile string, raw bool) {
 	}
 
 	sort.Strings(files)
-
-	// Determine threshold from first file
-	data, err := ioutil.ReadFile(files[0])
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error reading share file: %v\n", err)
-		os.Exit(1)
-	}
-
-	var firstShare AllKeys
-	if err := json.Unmarshal(data, &firstShare); err != nil {
-		fmt.Fprintf(os.Stderr, "Error parsing share file: %v\n", err)
-		os.Exit(1)
-	}
 
 	// Read all shares
 	shareMap := make(map[string][][]byte)
@@ -314,6 +328,7 @@ func handleRecover(dir, keyName, outputFile string, raw bool) {
 	}
 
 	// Recover keys
+	recoveredCount := 0
 	for kName, shares := range shareMap {
 		recovered, err := shamir.Combine(shares)
 		if err != nil {
@@ -349,5 +364,11 @@ func handleRecover(dir, keyName, outputFile string, raw bool) {
 				fmt.Printf("✅ Recovered key '%s':\n%s\n", kName, hexKey)
 			}
 		}
+		recoveredCount++
+	}
+
+	if recoveredCount == 0 {
+		fmt.Fprintf(os.Stderr, "Error: Failed to recover any keys\n")
+		os.Exit(1)
 	}
 }

@@ -1,3 +1,5 @@
+go build -o shamir-cli
+
 # Manual test with a known key
 #printf "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef" > test.key
 
